@@ -1,6 +1,7 @@
 #include "mlir/IR/BuiltinOps.h" // mlir::ModuleOp
 #include "mlir/Target/LLVMIR/LLVMTranslationInterface.h"
 #include "mlir/Target/LLVMIR/ModuleTranslation.h"
+#include "triton/Tools/LLVMDiagnosticCapture.h"
 #include "triton/Tools/LLVMOptions.h"
 #include "triton/Tools/Sys/GetEnv.h"
 #include "triton/Version.h"
@@ -15,8 +16,6 @@
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/IR/DebugInfo.h"
-#include "llvm/IR/DiagnosticInfo.h"
-#include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/LLVMContext.h"
@@ -75,44 +74,6 @@ using namespace llvm;
 
 namespace {
 
-class TritonLLVMDiagnosticCapture {
-  llvm::LLVMContext &context;
-  llvm::DiagnosticHandler::DiagnosticHandlerTy previousCallback;
-  void *previousContext;
-  std::string message;
-
-  static void handleDiagnostic(const llvm::DiagnosticInfo *diagnostic,
-                               void *context) {
-    auto *capture = static_cast<TritonLLVMDiagnosticCapture *>(context);
-    llvm::raw_string_ostream stream(capture->message);
-    stream << llvm::LLVMContext::getDiagnosticMessagePrefix(
-                  diagnostic->getSeverity())
-           << ": ";
-    llvm::DiagnosticPrinterRawOStream printer(stream);
-    diagnostic->print(printer);
-    stream << '\n';
-  }
-
-public:
-  explicit TritonLLVMDiagnosticCapture(llvm::LLVMContext &context)
-      : context(context),
-        previousCallback(context.getDiagnosticHandlerCallBack()),
-        previousContext(context.getDiagnosticContext()) {
-    context.setDiagnosticHandlerCallBack(handleDiagnostic, this);
-  }
-
-  ~TritonLLVMDiagnosticCapture() {
-    context.setDiagnosticHandlerCallBack(previousCallback, previousContext);
-  }
-
-  TritonLLVMDiagnosticCapture(const TritonLLVMDiagnosticCapture &) = delete;
-  TritonLLVMDiagnosticCapture &
-  operator=(const TritonLLVMDiagnosticCapture &) = delete;
-
-  bool hasErrors() const { return context.getDiagHandlerPtr()->HasErrors; }
-  const std::string &getMessage() const { return message; }
-};
-
 struct ExpandMaskedDivRemPass : RequiredPassInfoMixin<ExpandMaskedDivRemPass> {
   PreservedAnalyses run(Module &module, ModuleAnalysisManager &) {
     SmallVector<std::pair<IntrinsicInst *, Instruction::BinaryOps>> intrinsics;
@@ -159,6 +120,7 @@ struct ExpandMaskedDivRemPass : RequiredPassInfoMixin<ExpandMaskedDivRemPass> {
   }
 };
 
+using mlir::triton::tools::LLVMDiagnosticCapture;
 using mlir::triton::tools::ScopedLLVMOptions;
 
 // The LLVM command line overrides one pipeline run needs. They take effect
@@ -455,7 +417,7 @@ std::string translateLLVMIRToASM(
     auto fileType = isObject ? llvm::CodeGenFileType::ObjectFile
                              : llvm::CodeGenFileType::AssemblyFile;
     machine->addPassesToEmitFile(pass, pstream, nullptr, fileType);
-    TritonLLVMDiagnosticCapture diagnostics(module.getContext());
+    LLVMDiagnosticCapture diagnostics(module.getContext());
     pass.run(module);
     if (diagnostics.hasErrors())
       throw std::runtime_error(diagnostics.getMessage());

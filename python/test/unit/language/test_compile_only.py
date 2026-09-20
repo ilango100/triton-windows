@@ -56,6 +56,8 @@ def test_compile_only_sort_keeps_comparisons_boolean() -> None:
     assert "arith.extui" not in compiled.asm["ttgir"]
 
 
+# Errors are catched, see https://github.com/triton-lang/triton-windows/issues/45
+# Remarks are filtered, see https://github.com/triton-lang/triton-windows/issues/54
 def test_llvm_codegen_errors_are_catchable_for_invalid_inline_asm() -> None:
 
     @triton.jit
@@ -86,6 +88,18 @@ def test_llvm_codegen_errors_are_catchable_for_invalid_inline_asm() -> None:
 
     with pytest.raises(RuntimeError, match="could not allocate output register for constraint 'h'"):
         triton.compile(src, target=GPUTarget("hip", "gfx1200", 32))
+
+
+@pytest.mark.parametrize("target", [GPUTarget("cuda", 90, 32), GPUTarget("hip", "gfx1200", 32)], ids=["cuda", "hip"])
+def test_llvm_codegen_remarks_are_not_reported(target, fresh_triton_cache, capfd) -> None:
+
+    @triton.jit
+    def kernel(out):
+        tl.store(out, 1)
+
+    src = ASTSource(fn=kernel, signature={"out": "*i32"})
+    triton.compile(src, target=target)
+    assert "instructions in function" not in capfd.readouterr().err
 
 
 def test_compile_only_sm100() -> None:
