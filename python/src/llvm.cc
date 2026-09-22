@@ -64,6 +64,8 @@ class TritonLLVMDiagnosticCapture {
 
   static void handleDiagnostic(const llvm::DiagnosticInfo *diagnostic,
                                void *context) {
+    if (diagnostic->getSeverity() == llvm::DS_Remark)
+      return;
     auto *capture = static_cast<TritonLLVMDiagnosticCapture *>(context);
     llvm::raw_string_ostream stream(capture->message);
     stream << llvm::LLVMContext::getDiagnosticMessagePrefix(
@@ -79,7 +81,8 @@ public:
       : context(context),
         previousCallback(context.getDiagnosticHandlerCallBack()),
         previousContext(context.getDiagnosticContext()) {
-    context.setDiagnosticHandlerCallBack(handleDiagnostic, this);
+    context.setDiagnosticHandlerCallBack(handleDiagnostic, this,
+                                         /*RespectFilters=*/false);
   }
 
   ~TritonLLVMDiagnosticCapture() {
